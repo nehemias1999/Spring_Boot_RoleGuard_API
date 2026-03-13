@@ -1,0 +1,146 @@
+package com.nsalazar.roleguard.user.application.service;
+
+import com.nsalazar.roleguard.role.domain.model.Role;
+import com.nsalazar.roleguard.role.domain.port.out.IRoleRepositoryPort;
+import com.nsalazar.roleguard.shared.exception.DuplicateResourceException;
+import com.nsalazar.roleguard.shared.exception.ResourceNotFoundException;
+import com.nsalazar.roleguard.user.application.dto.CreateUserRequest;
+import com.nsalazar.roleguard.user.application.dto.UpdateUserRequest;
+import com.nsalazar.roleguard.user.application.dto.UserResponse;
+import com.nsalazar.roleguard.user.application.mapper.IUserMapper;
+import com.nsalazar.roleguard.user.domain.model.User;
+import com.nsalazar.roleguard.user.domain.port.in.IUserUseCase;
+import com.nsalazar.roleguard.user.domain.port.out.IUserRepositoryPort;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * Application service implementing all User use cases.
+ * Orchestrates domain rules, persistence, role lookup, and password hashing.
+ * Never exposes JPA entities outside this layer — all outputs are DTOs.
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class UserService implements IUserUseCase {
+
+    private final IUserRepositoryPort userRepository;
+    private final IRoleRepositoryPort roleRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final IUserMapper userMapper;
+
+    @Override
+    @Transactional
+    public UserResponse createUser(CreateUserRequest request) {
+        log.debug("Creating user with username='{}', email='{}'", request.username(), request.email());
+
+        validateUsernameUniqueness(request.username());
+        validateEmailUniqueness(request.email());
+
+        User user = userMapper.toEntity(request);
+        user.setPassword(passwordEncoder.encode(request.password()));
+        // Default enabled to true when not explicitly provided
+        user.setEnabled(request.enabled() != null ? request.enabled() : Boolean.TRUE);
+
+        if (request.roleId() != null) {
+            Role role = roleRepository.findById(request.roleId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Role", "id", request.roleId()));
+            user.setRole(role);
+        }
+
+        User saved = userRepository.save(user);
+        log.info("User created — id={}, username='{}'", saved.getId(), saved.getUsername());
+        return userMapper.toResponse(saved);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UserResponse getUserById(Long id) {
+        log.debug("Fetching user id={}", id);
+        return userMapper.toResponse(findUserOrThrow(id));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UserResponse getUserByEmail(String email) {
+        log.debug("Fetching user by email='{}'", email);
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "email", email));
+        return userMapper.toResponse(user);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<UserResponse> getAllUsers(Pageable pageable) {
+        log.debug("Fetching all users — page={}, size={}", pageable.getPageNumber(), pageable.getPageSize());
+        return userRepository.findAll(pageable).map(userMapper::toResponse);
+    }
+
+    @Override
+    @Transactional
+    public UserResponse updateUser(Long id, UpdateUserRequest request) {
+        log.debug("Updating user id={}", id);
+
+        User user = findUserOrThrow(id);
+
+        if (request.username() != null && !request.username().equals(user.getUsername())) {
+            validateUsernameUniqueness(request.username());
+            user.setUsername(request.username());
+        }
+
+        if (request.email() != null && !request.email().equals(user.getEmail())) {
+            validateEmailUniqueness(request.email());
+            user.setEmail(request.email());
+        }
+
+        if (request.password() != null) {
+            user.setPassword(passwordEncoder.encode(request.password()));
+        }
+
+        if (request.enabled() != null) {
+            user.setEnabled(request.enabled());
+            log.debug("User id={} enabled set to {}", id, request.enabled());
+        }
+
+        User updated = userRepository.save(user);
+        log.info("User updated — id={}", updated.getId());
+        return userMapper.toResponse(updated);
+    }
+
+    @Override
+    @Transactional
+    public void deleteUser(Long id) {
+        log.debug("Deleting user id={}", id);
+        if (!userRepository.existsById(id)) {
+            throw new ResourceNotFoundException("User", "id", id);
+        }
+        userRepository.deleteById(id);
+        log.info("User deleted — id={}", id);
+    }
+
+    // -------------------------------------------------------------------------
+    // Private helpers
+    // -------------------------------------------------------------------------
+
+    private User findUserOrThrow(Long id) {
+        return userRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", id));
+    }
+
+    private void validateUsernameUniqueness(String username) {
+        if (userRepository.existsByUsername(username)) {
+            throw new DuplicateResourceException("User", "username", username);
+        }
+    }
+
+    private void validateEmailUniqueness(String email) {
+        if (userRepository.existsByEmail(email)) {
+            throw new DuplicateResourceException("User", "email", email);
+        }
+    }
+}
