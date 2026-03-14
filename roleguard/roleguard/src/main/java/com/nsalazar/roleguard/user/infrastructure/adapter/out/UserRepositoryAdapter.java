@@ -10,6 +10,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Persistence adapter implementing {@link IUserRepositoryPort}.
@@ -29,7 +30,7 @@ public class UserRepositoryAdapter implements IUserRepositoryPort {
     }
 
     @Override
-    public Optional<User> findById(Long id) {
+    public Optional<User> findById(UUID id) {
         log.trace("Querying user by id={}", id);
         return jpaUserRepository.findById(id);
     }
@@ -53,7 +54,7 @@ public class UserRepositoryAdapter implements IUserRepositoryPort {
     }
 
     @Override
-    public boolean existsById(Long id) {
+    public boolean existsById(UUID id) {
         log.trace("Checking existence of user id={}", id);
         return jpaUserRepository.existsById(id);
     }
@@ -71,7 +72,13 @@ public class UserRepositoryAdapter implements IUserRepositoryPort {
     }
 
     @Override
-    public void deleteById(Long id) {
+    public long countByRoleId(UUID roleId) {
+        log.trace("Counting users with role id={}", roleId);
+        return jpaUserRepository.countByRoleId(roleId);
+    }
+
+    @Override
+    public void deleteById(UUID id) {
         log.trace("Deleting user id={}", id);
         jpaUserRepository.deleteById(id);
     }

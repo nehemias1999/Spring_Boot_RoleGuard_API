@@ -15,8 +15,11 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.UUID;
 
 /**
  * REST adapter for the Role slice.
@@ -41,6 +44,7 @@ public class RoleController {
      * @param sort field name to sort by (default "id")
      * @return 200 with paginated role list
      */
+    @PreAuthorize("hasAuthority('ROLE_READ')")
     @GetMapping
     public ResponseEntity<Page<RoleResponse>> getAllRoles(
             @RequestParam(defaultValue = "0") @Min(0) int page,
@@ -59,8 +63,9 @@ public class RoleController {
      * @param id role identifier
      * @return 200 with role, or 404 if not found
      */
+    @PreAuthorize("hasAuthority('ROLE_READ')")
     @GetMapping("/{id}")
-    public ResponseEntity<RoleResponse> getRoleById(@PathVariable Long id) {
+    public ResponseEntity<RoleResponse> getRoleById(@PathVariable UUID id) {
         log.debug("GET /api/v1/roles/{} — fetching role", id);
         RoleResponse role = roleUseCase.getRoleById(id);
         log.debug("GET /api/v1/roles/{} — found name='{}'", id, role.name());
@@ -73,6 +78,7 @@ public class RoleController {
      * @param name role name (e.g. "ADMIN")
      * @return 200 with role, or 404 if not found
      */
+    @PreAuthorize("hasAuthority('ROLE_READ')")
     @GetMapping("/name/{name}")
     public ResponseEntity<RoleResponse> getRoleByName(@PathVariable String name) {
         log.debug("GET /api/v1/roles/name/{} — fetching role", name);
@@ -87,6 +93,7 @@ public class RoleController {
      * @param request validated creation payload
      * @return 201 with created role, or 400/409
      */
+    @PreAuthorize("hasAuthority('ROLE_CREATE')")
     @PostMapping
     public ResponseEntity<RoleResponse> createRole(@Valid @RequestBody CreateRoleRequest request) {
         log.debug("POST /api/v1/roles — creating role name='{}'", request.name());
@@ -102,9 +109,10 @@ public class RoleController {
      * @param request fields to update (all optional)
      * @return 200 with updated role, or 404/409
      */
+    @PreAuthorize("hasAuthority('ROLE_UPDATE')")
     @PutMapping("/{id}")
     public ResponseEntity<RoleResponse> updateRole(
-            @PathVariable Long id,
+            @PathVariable UUID id,
             @Valid @RequestBody UpdateRoleRequest request) {
         log.debug("PUT /api/v1/roles/{} — updating role", id);
         RoleResponse updated = roleUseCase.updateRole(id, request);
@@ -119,11 +127,48 @@ public class RoleController {
      * @param id target role identifier
      * @return 204 No Content, or 404/409
      */
+    @PreAuthorize("hasAuthority('ROLE_DELETE')")
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteRole(@PathVariable Long id) {
+    public ResponseEntity<Void> deleteRole(@PathVariable UUID id) {
         log.debug("DELETE /api/v1/roles/{} — deleting role", id);
         roleUseCase.deleteRole(id);
         log.debug("DELETE /api/v1/roles/{} — role deleted", id);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Assigns a permission to a role. Requires ADMIN authority.
+     *
+     * @param id           target role identifier
+     * @param permissionId permission to assign
+     * @return 200 with updated role, or 404 if role or permission not found
+     */
+    @PreAuthorize("hasAuthority('PERMISSION_ASSIGN')")
+    @PutMapping("/{id}/permissions/{permissionId}")
+    public ResponseEntity<RoleResponse> assignPermission(
+            @PathVariable UUID id,
+            @PathVariable UUID permissionId) {
+        log.debug("PUT /api/v1/roles/{}/permissions/{} — assigning permission", id, permissionId);
+        RoleResponse updated = roleUseCase.assignPermission(id, permissionId);
+        log.debug("PUT /api/v1/roles/{}/permissions/{} — permission assigned", id, permissionId);
+        return ResponseEntity.ok(updated);
+    }
+
+    /**
+     * Removes a permission from a role. Requires ADMIN authority.
+     *
+     * @param id           target role identifier
+     * @param permissionId permission to remove
+     * @return 200 with updated role, or 404 if role or permission not found
+     */
+    @PreAuthorize("hasAuthority('PERMISSION_ASSIGN')")
+    @DeleteMapping("/{id}/permissions/{permissionId}")
+    public ResponseEntity<RoleResponse> removePermission(
+            @PathVariable UUID id,
+            @PathVariable UUID permissionId) {
+        log.debug("DELETE /api/v1/roles/{}/permissions/{} — removing permission", id, permissionId);
+        RoleResponse updated = roleUseCase.removePermission(id, permissionId);
+        log.debug("DELETE /api/v1/roles/{}/permissions/{} — permission removed", id, permissionId);
+        return ResponseEntity.ok(updated);
     }
 }

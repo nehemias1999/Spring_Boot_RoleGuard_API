@@ -7,6 +7,8 @@ import org.springframework.data.core.PropertyReferenceException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -21,6 +23,24 @@ import java.util.stream.Collectors;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(ResourceInUseException.class)
+    public ResponseEntity<ErrorResponse> handleResourceInUse(ResourceInUseException ex) {
+        log.warn("Resource in use: {}", ex.getMessage());
+        return buildResponse(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
+        log.warn("Access denied: {}", ex.getMessage());
+        return buildResponse(HttpStatus.FORBIDDEN, "Access denied");
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ErrorResponse> handleAuthentication(AuthenticationException ex) {
+        log.warn("Authentication failed: {}", ex.getMessage());
+        return buildResponse(HttpStatus.UNAUTHORIZED, "Invalid username or password");
+    }
 
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleResourceNotFound(ResourceNotFoundException ex) {

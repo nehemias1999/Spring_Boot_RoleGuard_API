@@ -5,6 +5,7 @@ import com.nsalazar.roleguard.user.application.dto.UpdateUserRequest;
 import com.nsalazar.roleguard.user.application.dto.UserResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import java.util.UUID;
 
 /**
  * Input port defining all use cases available for the User domain.
@@ -28,7 +29,16 @@ public interface IUserUseCase {
      * @return user response DTO
      * @throws com.nsalazar.roleguard.shared.exception.ResourceNotFoundException if not found
      */
-    UserResponse getUserById(Long id);
+    UserResponse getUserById(UUID id);
+
+    /**
+     * Retrieves a single user by username.
+     *
+     * @param username unique username
+     * @return user response DTO
+     * @throws com.nsalazar.roleguard.shared.exception.ResourceNotFoundException if not found
+     */
+    UserResponse getUserByUsername(String username);
 
     /**
      * Retrieves a single user by email address.
@@ -55,7 +65,17 @@ public interface IUserUseCase {
      * @param request fields to update
      * @return updated user response DTO
      */
-    UserResponse updateUser(Long id, UpdateUserRequest request);
+    UserResponse updateUser(UUID id, UpdateUserRequest request);
+
+    /**
+     * Assigns a role to a user, replacing any previously assigned role.
+     *
+     * @param userId target user identifier
+     * @param roleId role to assign
+     * @return updated user response DTO
+     * @throws com.nsalazar.roleguard.shared.exception.ResourceNotFoundException if user or role not found
+     */
+    UserResponse assignRole(UUID userId, UUID roleId);
 
     /**
      * Deletes a user by id.
@@ -63,5 +83,5 @@ public interface IUserUseCase {
      * @param id target user identifier
      * @throws com.nsalazar.roleguard.shared.exception.ResourceNotFoundException if not found
      */
-    void deleteUser(Long id);
+    void deleteUser(UUID id);
 }

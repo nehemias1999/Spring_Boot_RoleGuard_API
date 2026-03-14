@@ -5,6 +5,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Output port defining the persistence contract for Role.
@@ -14,15 +15,15 @@ public interface IRoleRepositoryPort {
 
     Role save(Role role);
 
-    Optional<Role> findById(Long id);
+    Optional<Role> findById(UUID id);
 
     Optional<Role> findByName(String name);
 
     Page<Role> findAll(Pageable pageable);
 
-    boolean existsById(Long id);
+    boolean existsById(UUID id);
 
     boolean existsByName(String name);
 
-    void deleteById(Long id);
+    void deleteById(UUID id);
 }

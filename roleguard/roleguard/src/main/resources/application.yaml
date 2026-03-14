@@ -17,6 +17,12 @@ spring:
         format_sql: true
         dialect: org.hibernate.dialect.MySQLDialect
 
+jwt:
+  # Default is a dev-only key. Override with a strong secret in production via JWT_SECRET env var.
+  secret: ${JWT_SECRET:ZGV2LW9ubHktc2VjcmV0LWtleS1mb3ItZGV2ZWxvcG1lbnQtb25seS1kb250LXVzZS1pbi1wcm9k}
+  expiration-ms: 86400000
+  refresh-expiration-ms: 604800000
+
 server:
   port: 8080
 

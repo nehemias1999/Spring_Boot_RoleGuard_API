@@ -27,6 +27,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -36,6 +37,10 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 @DisplayName("UserService")
 class UserServiceTest {
+
+    private static final UUID USER_ID    = UUID.fromString("11111111-1111-1111-1111-111111111111");
+    private static final UUID ROLE_ID    = UUID.fromString("22222222-2222-2222-2222-222222222222");
+    private static final UUID UNKNOWN_ID = UUID.fromString("99999999-9999-9999-9999-999999999999");
 
     @Mock private IUserRepositoryPort userRepository;
     @Mock private IRoleRepositoryPort roleRepository;
@@ -50,7 +55,7 @@ class UserServiceTest {
     @BeforeEach
     void setUp() {
         user = User.builder()
-                .id(1L)
+                .id(USER_ID)
                 .username("john")
                 .email("john@example.com")
                 .password("$2a$10$hashed")
@@ -60,7 +65,7 @@ class UserServiceTest {
                 .updatedAt(LocalDateTime.now())
                 .build();
 
-        userResponse = new UserResponse(1L, "john", "john@example.com", null,
+        userResponse = new UserResponse(USER_ID, "john", "john@example.com", null,
                 true, 0L, user.getCreatedAt(), user.getUpdatedAt());
     }
 
@@ -82,6 +87,7 @@ class UserServiceTest {
             when(userRepository.existsByEmail("john@example.com")).thenReturn(false);
             when(userMapper.toEntity(request)).thenReturn(user);
             when(passwordEncoder.encode("password123")).thenReturn("$2a$10$hashed");
+            when(roleRepository.findByName("USER")).thenReturn(Optional.empty());
             when(userRepository.save(user)).thenReturn(user);
             when(userMapper.toResponse(user)).thenReturn(userResponse);
 
@@ -101,6 +107,7 @@ class UserServiceTest {
             when(userRepository.existsByEmail("john@example.com")).thenReturn(false);
             when(userMapper.toEntity(request)).thenReturn(user);
             when(passwordEncoder.encode(any())).thenReturn("$2a$10$hashed");
+            when(roleRepository.findByName("USER")).thenReturn(Optional.empty());
             when(userRepository.save(user)).thenReturn(user);
             when(userMapper.toResponse(user)).thenReturn(userResponse);
 
@@ -119,6 +126,7 @@ class UserServiceTest {
             when(userRepository.existsByEmail("john@example.com")).thenReturn(false);
             when(userMapper.toEntity(disabledRequest)).thenReturn(user);
             when(passwordEncoder.encode(any())).thenReturn("$2a$10$hashed");
+            when(roleRepository.findByName("USER")).thenReturn(Optional.empty());
             when(userRepository.save(user)).thenReturn(user);
             when(userMapper.toResponse(user)).thenReturn(userResponse);
 
@@ -155,21 +163,21 @@ class UserServiceTest {
         @Test
         @DisplayName("should assign role when valid roleId is provided")
         void shouldAssignRole_whenRoleIdProvided() {
-            Role role = Role.builder().id(2L).name("ROLE_ADMIN").build();
+            Role role = Role.builder().id(ROLE_ID).name("ROLE_ADMIN").build();
             CreateUserRequest requestWithRole =
-                    new CreateUserRequest("john", "john@example.com", "password123", null, 2L);
+                    new CreateUserRequest("john", "john@example.com", "password123", null, ROLE_ID);
 
             when(userRepository.existsByUsername("john")).thenReturn(false);
             when(userRepository.existsByEmail("john@example.com")).thenReturn(false);
             when(userMapper.toEntity(requestWithRole)).thenReturn(user);
             when(passwordEncoder.encode(any())).thenReturn("$2a$10$hashed");
-            when(roleRepository.findById(2L)).thenReturn(Optional.of(role));
+            when(roleRepository.findById(ROLE_ID)).thenReturn(Optional.of(role));
             when(userRepository.save(user)).thenReturn(user);
             when(userMapper.toResponse(user)).thenReturn(userResponse);
 
             userService.createUser(requestWithRole);
 
-            verify(roleRepository).findById(2L);
+            verify(roleRepository).findById(ROLE_ID);
             assertThat(user.getRole()).isEqualTo(role);
         }
 
@@ -177,17 +185,35 @@ class UserServiceTest {
         @DisplayName("should throw ResourceNotFoundException when provided roleId does not exist")
         void shouldThrow_whenRoleIdNotFound() {
             CreateUserRequest requestWithRole =
-                    new CreateUserRequest("john", "john@example.com", "password123", null, 99L);
+                    new CreateUserRequest("john", "john@example.com", "password123", null, UNKNOWN_ID);
 
             when(userRepository.existsByUsername("john")).thenReturn(false);
             when(userRepository.existsByEmail("john@example.com")).thenReturn(false);
             when(userMapper.toEntity(requestWithRole)).thenReturn(user);
             when(passwordEncoder.encode(any())).thenReturn("$2a$10$hashed");
-            when(roleRepository.findById(99L)).thenReturn(Optional.empty());
+            when(roleRepository.findById(UNKNOWN_ID)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> userService.createUser(requestWithRole))
                     .isInstanceOf(ResourceNotFoundException.class)
                     .hasMessageContaining("Role");
+        }
+
+        @Test
+        @DisplayName("should auto-assign USER role when no roleId is provided and USER role exists")
+        void shouldAutoAssignUserRole_whenUserRoleExists() {
+            Role userRole = Role.builder().id(ROLE_ID).name("USER").build();
+
+            when(userRepository.existsByUsername("john")).thenReturn(false);
+            when(userRepository.existsByEmail("john@example.com")).thenReturn(false);
+            when(userMapper.toEntity(request)).thenReturn(user);
+            when(passwordEncoder.encode(any())).thenReturn("$2a$10$hashed");
+            when(roleRepository.findByName("USER")).thenReturn(Optional.of(userRole));
+            when(userRepository.save(user)).thenReturn(user);
+            when(userMapper.toResponse(user)).thenReturn(userResponse);
+
+            userService.createUser(request);
+
+            assertThat(user.getRole()).isEqualTo(userRole);
         }
     }
 
@@ -202,18 +228,18 @@ class UserServiceTest {
         @Test
         @DisplayName("should return UserResponse when user exists")
         void shouldReturnUser_whenExists() {
-            when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+            when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
             when(userMapper.toResponse(user)).thenReturn(userResponse);
 
-            assertThat(userService.getUserById(1L).id()).isEqualTo(1L);
+            assertThat(userService.getUserById(USER_ID).id()).isEqualTo(USER_ID);
         }
 
         @Test
         @DisplayName("should throw ResourceNotFoundException when user does not exist")
         void shouldThrow_whenNotFound() {
-            when(userRepository.findById(99L)).thenReturn(Optional.empty());
+            when(userRepository.findById(UNKNOWN_ID)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> userService.getUserById(99L))
+            assertThatThrownBy(() -> userService.getUserById(UNKNOWN_ID))
                     .isInstanceOf(ResourceNotFoundException.class)
                     .hasMessageContaining("User");
         }
@@ -286,13 +312,13 @@ class UserServiceTest {
         void shouldUpdateFields_whenProvided() {
             UpdateUserRequest request = new UpdateUserRequest("johnny", null, null, null);
 
-            when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+            when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
             when(userRepository.existsByUsername("johnny")).thenReturn(false);
             when(userRepository.save(user)).thenReturn(user);
             when(userMapper.toResponse(user)).thenReturn(
-                    new UserResponse(1L, "johnny", "john@example.com", null, true, 0L, null, null));
+                    new UserResponse(USER_ID, "johnny", "john@example.com", null, true, 0L, null, null));
 
-            assertThat(userService.updateUser(1L, request).username()).isEqualTo("johnny");
+            assertThat(userService.updateUser(USER_ID, request).username()).isEqualTo("johnny");
             verify(passwordEncoder, never()).encode(any());
         }
 
@@ -301,12 +327,12 @@ class UserServiceTest {
         void shouldHashNewPassword_whenProvided() {
             UpdateUserRequest request = new UpdateUserRequest(null, null, "newpassword123", null);
 
-            when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+            when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
             when(passwordEncoder.encode("newpassword123")).thenReturn("$2a$10$newHash");
             when(userRepository.save(user)).thenReturn(user);
             when(userMapper.toResponse(user)).thenReturn(userResponse);
 
-            userService.updateUser(1L, request);
+            userService.updateUser(USER_ID, request);
 
             verify(passwordEncoder).encode("newpassword123");
             assertThat(user.getPassword()).isEqualTo("$2a$10$newHash");
@@ -317,11 +343,11 @@ class UserServiceTest {
         void shouldDisableUser_whenEnabledIsFalse() {
             UpdateUserRequest request = new UpdateUserRequest(null, null, null, false);
 
-            when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+            when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
             when(userRepository.save(user)).thenReturn(user);
             when(userMapper.toResponse(user)).thenReturn(userResponse);
 
-            userService.updateUser(1L, request);
+            userService.updateUser(USER_ID, request);
 
             assertThat(user.isEnabled()).isFalse();
         }
@@ -329,10 +355,10 @@ class UserServiceTest {
         @Test
         @DisplayName("should throw DuplicateResourceException when new username is taken")
         void shouldThrow_whenNewUsernameAlreadyExists() {
-            when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+            when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
             when(userRepository.existsByUsername("taken")).thenReturn(true);
 
-            assertThatThrownBy(() -> userService.updateUser(1L, new UpdateUserRequest("taken", null, null, null)))
+            assertThatThrownBy(() -> userService.updateUser(USER_ID, new UpdateUserRequest("taken", null, null, null)))
                     .isInstanceOf(DuplicateResourceException.class)
                     .hasMessageContaining("username");
         }
@@ -340,10 +366,86 @@ class UserServiceTest {
         @Test
         @DisplayName("should throw ResourceNotFoundException when user does not exist")
         void shouldThrow_whenUserNotFound() {
-            when(userRepository.findById(99L)).thenReturn(Optional.empty());
+            when(userRepository.findById(UNKNOWN_ID)).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> userService.updateUser(99L, new UpdateUserRequest(null, null, null, null)))
+            assertThatThrownBy(() -> userService.updateUser(UNKNOWN_ID, new UpdateUserRequest(null, null, null, null)))
                     .isInstanceOf(ResourceNotFoundException.class);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // getUserByUsername
+    // -------------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("getUserByUsername()")
+    class GetUserByUsername {
+
+        @Test
+        @DisplayName("should return UserResponse when username exists")
+        void shouldReturnUser_whenUsernameExists() {
+            when(userRepository.findByUsername("john")).thenReturn(Optional.of(user));
+            when(userMapper.toResponse(user)).thenReturn(userResponse);
+
+            assertThat(userService.getUserByUsername("john").username()).isEqualTo("john");
+        }
+
+        @Test
+        @DisplayName("should throw ResourceNotFoundException when username not found")
+        void shouldThrow_whenUsernameNotFound() {
+            when(userRepository.findByUsername("ghost")).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> userService.getUserByUsername("ghost"))
+                    .isInstanceOf(ResourceNotFoundException.class)
+                    .hasMessageContaining("username");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // assignRole
+    // -------------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("assignRole()")
+    class AssignRole {
+
+        @Test
+        @DisplayName("should assign role to user and return updated response")
+        void shouldAssignRole_whenBothExist() {
+            Role role = Role.builder().id(ROLE_ID).name("ADMIN").build();
+            UserResponse updatedResponse = new UserResponse(USER_ID, "john", "john@example.com", "ADMIN",
+                    true, 1L, user.getCreatedAt(), null);
+
+            when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+            when(roleRepository.findById(ROLE_ID)).thenReturn(Optional.of(role));
+            when(userRepository.save(user)).thenReturn(user);
+            when(userMapper.toResponse(user)).thenReturn(updatedResponse);
+
+            UserResponse result = userService.assignRole(USER_ID, ROLE_ID);
+
+            assertThat(result.roleName()).isEqualTo("ADMIN");
+            assertThat(user.getRole()).isEqualTo(role);
+        }
+
+        @Test
+        @DisplayName("should throw ResourceNotFoundException when user does not exist")
+        void shouldThrow_whenUserNotFound() {
+            when(userRepository.findById(UNKNOWN_ID)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> userService.assignRole(UNKNOWN_ID, ROLE_ID))
+                    .isInstanceOf(ResourceNotFoundException.class)
+                    .hasMessageContaining("User");
+        }
+
+        @Test
+        @DisplayName("should throw ResourceNotFoundException when role does not exist")
+        void shouldThrow_whenRoleNotFound() {
+            when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+            when(roleRepository.findById(UNKNOWN_ID)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> userService.assignRole(USER_ID, UNKNOWN_ID))
+                    .isInstanceOf(ResourceNotFoundException.class)
+                    .hasMessageContaining("Role");
         }
     }
 
@@ -358,19 +460,19 @@ class UserServiceTest {
         @Test
         @DisplayName("should delete user when it exists")
         void shouldDelete_whenExists() {
-            when(userRepository.existsById(1L)).thenReturn(true);
+            when(userRepository.existsById(USER_ID)).thenReturn(true);
 
-            userService.deleteUser(1L);
+            userService.deleteUser(USER_ID);
 
-            verify(userRepository).deleteById(1L);
+            verify(userRepository).deleteById(USER_ID);
         }
 
         @Test
         @DisplayName("should throw ResourceNotFoundException when user does not exist")
         void shouldThrow_whenNotFound() {
-            when(userRepository.existsById(99L)).thenReturn(false);
+            when(userRepository.existsById(UNKNOWN_ID)).thenReturn(false);
 
-            assertThatThrownBy(() -> userService.deleteUser(99L))
+            assertThatThrownBy(() -> userService.deleteUser(UNKNOWN_ID))
                     .isInstanceOf(ResourceNotFoundException.class)
                     .hasMessageContaining("User");
 

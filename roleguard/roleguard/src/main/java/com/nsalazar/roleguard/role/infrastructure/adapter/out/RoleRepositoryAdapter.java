@@ -10,6 +10,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Persistence adapter implementing {@link IRoleRepositoryPort}.
@@ -29,7 +30,7 @@ public class RoleRepositoryAdapter implements IRoleRepositoryPort {
     }
 
     @Override
-    public Optional<Role> findById(Long id) {
+    public Optional<Role> findById(UUID id) {
         log.trace("Querying role by id={}", id);
         return jpaRoleRepository.findById(id);
     }
@@ -47,7 +48,7 @@ public class RoleRepositoryAdapter implements IRoleRepositoryPort {
     }
 
     @Override
-    public boolean existsById(Long id) {
+    public boolean existsById(UUID id) {
         log.trace("Checking existence of role id={}", id);
         return jpaRoleRepository.existsById(id);
     }
@@ -59,7 +60,7 @@ public class RoleRepositoryAdapter implements IRoleRepositoryPort {
     }
 
     @Override
-    public void deleteById(Long id) {
+    public void deleteById(UUID id) {
         log.trace("Deleting role id={}", id);
         jpaRoleRepository.deleteById(id);
     }

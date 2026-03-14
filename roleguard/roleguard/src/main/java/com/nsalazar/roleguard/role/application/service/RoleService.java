@@ -1,5 +1,7 @@
 package com.nsalazar.roleguard.role.application.service;
 
+import com.nsalazar.roleguard.permission.domain.model.Permission;
+import com.nsalazar.roleguard.permission.domain.port.out.IPermissionRepositoryPort;
 import com.nsalazar.roleguard.role.application.dto.CreateRoleRequest;
 import com.nsalazar.roleguard.role.application.dto.RoleResponse;
 import com.nsalazar.roleguard.role.application.dto.UpdateRoleRequest;
@@ -8,13 +10,17 @@ import com.nsalazar.roleguard.role.domain.model.Role;
 import com.nsalazar.roleguard.role.domain.port.in.IRoleUseCase;
 import com.nsalazar.roleguard.role.domain.port.out.IRoleRepositoryPort;
 import com.nsalazar.roleguard.shared.exception.DuplicateResourceException;
+import com.nsalazar.roleguard.shared.exception.ResourceInUseException;
 import com.nsalazar.roleguard.shared.exception.ResourceNotFoundException;
+import com.nsalazar.roleguard.user.domain.port.out.IUserRepositoryPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.UUID;
 
 /**
  * Application service implementing all Role use cases.
@@ -27,6 +33,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class RoleService implements IRoleUseCase {
 
     private final IRoleRepositoryPort roleRepository;
+    private final IPermissionRepositoryPort permissionRepository;
+    private final IUserRepositoryPort userRepository;
     private final IRoleMapper roleMapper;
 
     @Override
@@ -45,7 +53,7 @@ public class RoleService implements IRoleUseCase {
 
     @Override
     @Transactional(readOnly = true)
-    public RoleResponse getRoleById(Long id) {
+    public RoleResponse getRoleById(UUID id) {
         log.debug("Fetching role id={}", id);
         return roleMapper.toResponse(findRoleOrThrow(id));
     }
@@ -68,7 +76,7 @@ public class RoleService implements IRoleUseCase {
 
     @Override
     @Transactional
-    public RoleResponse updateRole(Long id, UpdateRoleRequest request) {
+    public RoleResponse updateRole(UUID id, UpdateRoleRequest request) {
         log.debug("Updating role id={}", id);
 
         Role role = findRoleOrThrow(id);
@@ -85,22 +93,56 @@ public class RoleService implements IRoleUseCase {
 
     @Override
     @Transactional
-    public void deleteRole(Long id) {
+    public void deleteRole(UUID id) {
         log.debug("Deleting role id={}", id);
         if (!roleRepository.existsById(id)) {
             throw new ResourceNotFoundException("Role", "id", id);
         }
-        // If users are still assigned to this role, the DB FK constraint will
-        // raise DataIntegrityViolationException, handled by GlobalExceptionHandler.
+        long userCount = userRepository.countByRoleId(id);
+        if (userCount > 0) {
+            throw new ResourceInUseException("Role", "user(s)", userCount);
+        }
         roleRepository.deleteById(id);
         log.info("Role deleted — id={}", id);
+    }
+
+    @Override
+    @Transactional
+    public RoleResponse assignPermission(UUID roleId, UUID permissionId) {
+        log.debug("Assigning permission id={} to role id={}", permissionId, roleId);
+
+        Role role = findRoleOrThrow(roleId);
+        Permission permission = permissionRepository.findById(permissionId)
+                .orElseThrow(() -> new ResourceNotFoundException("Permission", "id", permissionId));
+
+        role.getPermissions().add(permission);
+        Role updated = roleRepository.save(role);
+
+        log.info("Permission id={} assigned to role id={}", permissionId, roleId);
+        return roleMapper.toResponse(updated);
+    }
+
+    @Override
+    @Transactional
+    public RoleResponse removePermission(UUID roleId, UUID permissionId) {
+        log.debug("Removing permission id={} from role id={}", permissionId, roleId);
+
+        Role role = findRoleOrThrow(roleId);
+        Permission permission = permissionRepository.findById(permissionId)
+                .orElseThrow(() -> new ResourceNotFoundException("Permission", "id", permissionId));
+
+        role.getPermissions().remove(permission);
+        Role updated = roleRepository.save(role);
+
+        log.info("Permission id={} removed from role id={}", permissionId, roleId);
+        return roleMapper.toResponse(updated);
     }
 
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
 
-    private Role findRoleOrThrow(Long id) {
+    private Role findRoleOrThrow(UUID id) {
         return roleRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Role", "id", id));
     }

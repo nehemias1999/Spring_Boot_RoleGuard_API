@@ -4,8 +4,12 @@ import com.nsalazar.roleguard.role.domain.model.Role;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
+import org.springframework.data.annotation.CreatedBy;
+import org.springframework.data.annotation.LastModifiedBy;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 /**
  * Core User entity.
@@ -21,10 +25,13 @@ import java.time.LocalDateTime;
  *       overwriting each other.</li>
  *   <li>Indexes on {@code username} and {@code email} ensure O(log n) lookups on the
  *       most frequent query paths.</li>
+ *   <li>{@code createdBy} / {@code updatedBy} are populated by Spring Data JPA Auditing
+ *       via {@link com.nsalazar.roleguard.shared.config.AuditorAwareImpl}.</li>
  * </ul>
  * </p>
  */
 @Entity
+@EntityListeners(AuditingEntityListener.class)
 @Table(
         name = "users",
         indexes = {
@@ -41,8 +48,8 @@ import java.time.LocalDateTime;
 public class User {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
 
     @Column(unique = true, nullable = false, length = 50)
     private String username;
@@ -58,7 +65,6 @@ public class User {
     /**
      * Whether the user account is active. Defaults to {@code true}.
      * Set to {@code false} to disable the account without deleting it.
-     * Spring Security's {@code UserDetails.isEnabled()} will read this field.
      */
     @Builder.Default
     @Column(nullable = false)
@@ -66,8 +72,6 @@ public class User {
 
     /**
      * Optimistic locking version. Managed entirely by Hibernate — do not set manually.
-     * Incremented on every UPDATE; a stale-read conflict throws
-     * {@code ObjectOptimisticLockingFailureException}.
      */
     @Version
     private Long version;
@@ -88,6 +92,16 @@ public class User {
 
     /** Null on creation; set to current time on every UPDATE. */
     private LocalDateTime updatedAt;
+
+    /** Username of the principal who created this record. Set once at insert. */
+    @CreatedBy
+    @Column(updatable = false, length = 50)
+    private String createdBy;
+
+    /** Username of the principal who last modified this record. */
+    @LastModifiedBy
+    @Column(length = 50)
+    private String updatedBy;
 
     @PreUpdate
     protected void onUpdate() {

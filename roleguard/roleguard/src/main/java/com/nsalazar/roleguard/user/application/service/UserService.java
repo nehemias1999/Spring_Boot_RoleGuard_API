@@ -19,6 +19,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.UUID;
+
 /**
  * Application service implementing all User use cases.
  * Orchestrates domain rules, persistence, role lookup, and password hashing.
@@ -44,13 +46,14 @@ public class UserService implements IUserUseCase {
 
         User user = userMapper.toEntity(request);
         user.setPassword(passwordEncoder.encode(request.password()));
-        // Default enabled to true when not explicitly provided
         user.setEnabled(request.enabled() != null ? request.enabled() : Boolean.TRUE);
 
         if (request.roleId() != null) {
             Role role = roleRepository.findById(request.roleId())
                     .orElseThrow(() -> new ResourceNotFoundException("Role", "id", request.roleId()));
             user.setRole(role);
+        } else {
+            roleRepository.findByName("USER").ifPresent(user::setRole);
         }
 
         User saved = userRepository.save(user);
@@ -60,9 +63,18 @@ public class UserService implements IUserUseCase {
 
     @Override
     @Transactional(readOnly = true)
-    public UserResponse getUserById(Long id) {
+    public UserResponse getUserById(UUID id) {
         log.debug("Fetching user id={}", id);
         return userMapper.toResponse(findUserOrThrow(id));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UserResponse getUserByUsername(String username) {
+        log.debug("Fetching user by username='{}'", username);
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "username", username));
+        return userMapper.toResponse(user);
     }
 
     @Override
@@ -83,7 +95,7 @@ public class UserService implements IUserUseCase {
 
     @Override
     @Transactional
-    public UserResponse updateUser(Long id, UpdateUserRequest request) {
+    public UserResponse updateUser(UUID id, UpdateUserRequest request) {
         log.debug("Updating user id={}", id);
 
         User user = findUserOrThrow(id);
@@ -114,7 +126,20 @@ public class UserService implements IUserUseCase {
 
     @Override
     @Transactional
-    public void deleteUser(Long id) {
+    public UserResponse assignRole(UUID userId, UUID roleId) {
+        log.debug("Assigning role id={} to user id={}", roleId, userId);
+        User user = findUserOrThrow(userId);
+        Role role = roleRepository.findById(roleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Role", "id", roleId));
+        user.setRole(role);
+        User updated = userRepository.save(user);
+        log.info("Role '{}' assigned to user id={}", role.getName(), userId);
+        return userMapper.toResponse(updated);
+    }
+
+    @Override
+    @Transactional
+    public void deleteUser(UUID id) {
         log.debug("Deleting user id={}", id);
         if (!userRepository.existsById(id)) {
             throw new ResourceNotFoundException("User", "id", id);
@@ -127,7 +152,7 @@ public class UserService implements IUserUseCase {
     // Private helpers
     // -------------------------------------------------------------------------
 
-    private User findUserOrThrow(Long id) {
+    private User findUserOrThrow(UUID id) {
         return userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", id));
     }

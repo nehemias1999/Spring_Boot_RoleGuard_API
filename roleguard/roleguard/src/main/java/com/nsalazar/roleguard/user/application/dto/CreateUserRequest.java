@@ -3,6 +3,7 @@ package com.nsalazar.roleguard.user.application.dto;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import java.util.UUID;
 
 /**
  * Request payload for creating a new user.
@@ -29,6 +30,6 @@ public record CreateUserRequest(
 
         Boolean enabled,
 
-        Long roleId
+        UUID roleId
 ) {
 }

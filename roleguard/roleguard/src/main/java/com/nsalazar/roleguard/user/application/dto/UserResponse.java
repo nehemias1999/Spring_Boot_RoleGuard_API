@@ -1,6 +1,7 @@
 package com.nsalazar.roleguard.user.application.dto;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 /**
  * Read-only DTO returned by all User endpoints.
@@ -17,7 +18,7 @@ import java.time.LocalDateTime;
  * @param updatedAt timestamp of last update
  */
 public record UserResponse(
-        Long id,
+        UUID id,
         String username,
         String email,
         String roleName,

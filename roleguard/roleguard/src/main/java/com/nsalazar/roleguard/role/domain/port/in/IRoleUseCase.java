@@ -5,6 +5,7 @@ import com.nsalazar.roleguard.role.application.dto.RoleResponse;
 import com.nsalazar.roleguard.role.application.dto.UpdateRoleRequest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import java.util.UUID;
 
 /**
  * Input port defining all use cases available for the Role domain.
@@ -27,7 +28,7 @@ public interface IRoleUseCase {
      * @return role response DTO
      * @throws com.nsalazar.roleguard.shared.exception.ResourceNotFoundException if not found
      */
-    RoleResponse getRoleById(Long id);
+    RoleResponse getRoleById(UUID id);
 
     /**
      * Retrieves a single role by its unique name.
@@ -54,7 +55,7 @@ public interface IRoleUseCase {
      * @param request fields to update
      * @return updated role response DTO
      */
-    RoleResponse updateRole(Long id, UpdateRoleRequest request);
+    RoleResponse updateRole(UUID id, UpdateRoleRequest request);
 
     /**
      * Deletes a role by id.
@@ -63,5 +64,25 @@ public interface IRoleUseCase {
      * @param id target role identifier
      * @throws com.nsalazar.roleguard.shared.exception.ResourceNotFoundException if not found
      */
-    void deleteRole(Long id);
+    void deleteRole(UUID id);
+
+    /**
+     * Assigns a permission to a role.
+     *
+     * @param roleId       target role identifier
+     * @param permissionId permission to assign
+     * @return updated role response DTO with the new permission included
+     * @throws com.nsalazar.roleguard.shared.exception.ResourceNotFoundException if role or permission not found
+     */
+    RoleResponse assignPermission(UUID roleId, UUID permissionId);
+
+    /**
+     * Removes a permission from a role.
+     *
+     * @param roleId       target role identifier
+     * @param permissionId permission to remove
+     * @return updated role response DTO without the removed permission
+     * @throws com.nsalazar.roleguard.shared.exception.ResourceNotFoundException if role or permission not found
+     */
+    RoleResponse removePermission(UUID roleId, UUID permissionId);
 }

@@ -5,6 +5,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Output port defining the persistence contract for User.
@@ -14,7 +15,7 @@ public interface IUserRepositoryPort {
 
     User save(User user);
 
-    Optional<User> findById(Long id);
+    Optional<User> findById(UUID id);
 
     Optional<User> findByUsername(String username);
 
@@ -22,11 +23,13 @@ public interface IUserRepositoryPort {
 
     Page<User> findAll(Pageable pageable);
 
-    boolean existsById(Long id);
+    boolean existsById(UUID id);
 
     boolean existsByUsername(String username);
 
     boolean existsByEmail(String email);
 
-    void deleteById(Long id);
+    long countByRoleId(UUID roleId);
+
+    void deleteById(UUID id);
 }

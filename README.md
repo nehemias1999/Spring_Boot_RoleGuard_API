@@ -1,6 +1,6 @@
 # RoleGuard API
 
-A RESTful API built with **Spring Boot 4** and **Java 21** that provides user management with role-based access control (RBAC) foundations. It features a clean **Hexagonal Architecture**, BCrypt password hashing, optimistic locking, paginated endpoints, and a full test suite — ready to be extended with JWT authentication.
+A RESTful API built with **Spring Boot 4** and **Java 21** that provides JWT authentication, full role-based access control (RBAC) with granular permissions, and protected endpoints. Built on **Hexagonal Architecture** with BCrypt password hashing, refresh token rotation, rate limiting, optimistic locking, paginated endpoints, and a full test suite.
 
 ---
 
@@ -27,9 +27,10 @@ A RESTful API built with **Spring Boot 4** and **Java 21** that provides user ma
 | Language | Java 21 |
 | Persistence | Spring Data JPA + Hibernate |
 | Database | MySQL 8+ (production) / H2 (tests) |
-| Security | Spring Security 6 + BCrypt |
+| Security | Spring Security 6 + JWT (jjwt 0.12) + BCrypt |
 | Mapping | MapStruct 1.6.3 |
 | Validation | Jakarta Bean Validation |
+| Rate Limiting | Bucket4j |
 | Boilerplate | Lombok |
 | Build | Maven Wrapper |
 | Testing | JUnit 5 + Mockito + MockMvc |
@@ -48,23 +49,29 @@ The project follows **Hexagonal Architecture** (Ports & Adapters), keeping the d
                        │ calls
 ┌──────────────────────▼───────────────────────────────────┐
 │                    Input Ports                           │
-│          (IUserUseCase, IRoleUseCase — interfaces)       │
+│   (IUserUseCase, IRoleUseCase, IAuthUseCase — interfaces)│
 └──────────────────────┬───────────────────────────────────┘
                        │ implemented by
 ┌──────────────────────▼───────────────────────────────────┐
 │                  Application Services                    │
-│             (UserService, RoleService — @Service)        │
+│        (UserService, RoleService, AuthService)           │
 └──────────────────────┬───────────────────────────────────┘
                        │ calls
 ┌──────────────────────▼───────────────────────────────────┐
 │                    Output Ports                          │
-│    (IUserRepositoryPort, IRoleRepositoryPort — interfaces)│
+│  (IUserRepositoryPort, IRoleRepositoryPort — interfaces) │
 └──────────────────────┬───────────────────────────────────┘
                        │ implemented by
 ┌──────────────────────▼───────────────────────────────────┐
 │                  Outbound Adapters                       │
 │    (UserRepositoryAdapter, RoleRepositoryAdapter — JPA)  │
 └──────────────────────────────────────────────────────────┘
+```
+
+**Security filter chain** (runs before controllers):
+
+```
+Request → RateLimitFilter → JwtAuthFilter → Spring Security → Controller
 ```
 
 ---
@@ -75,40 +82,57 @@ The project follows **Hexagonal Architecture** (Ports & Adapters), keeping the d
 roleguard/roleguard/
 ├── src/main/java/com/nsalazar/roleguard/
 │   ├── RoleguardApplication.java
+│   ├── auth/                              ← authentication slice
+│   │   ├── domain/model/RefreshToken.java
+│   │   ├── domain/port/in/IAuthUseCase.java
+│   │   ├── domain/port/out/IRefreshTokenRepositoryPort.java
+│   │   ├── application/service/AuthService.java
+│   │   ├── application/service/RefreshTokenService.java
+│   │   ├── application/dto/               ← LoginRequest, RegisterRequest, AuthResponse, …
+│   │   └── infrastructure/adapter/in/AuthController.java
 │   ├── user/
-│   │   ├── domain/
-│   │   │   └── model/User.java                   ← JPA entity
-│   │   ├── application/
-│   │   │   ├── port/
-│   │   │   │   ├── in/IUserUseCase.java           ← input port
-│   │   │   │   └── out/IUserRepositoryPort.java   ← output port
-│   │   │   ├── service/UserService.java           ← business logic
-│   │   │   └── mapper/IUserMapper.java            ← MapStruct mapper
-│   │   └── infrastructure/
-│   │       ├── adapter/
-│   │       │   ├── in/UserController.java         ← REST controller
-│   │       │   └── out/UserRepositoryAdapter.java ← JPA adapter
-│   │       ├── persistence/IJpaUserRepository.java
-│   │       └── dto/
-│   │           ├── CreateUserRequest.java
-│   │           ├── UpdateUserRequest.java
-│   │           └── UserResponse.java
-│   ├── role/                                      ← identical structure
+│   │   ├── domain/model/User.java
+│   │   ├── domain/port/in/IUserUseCase.java
+│   │   ├── domain/port/out/IUserRepositoryPort.java
+│   │   ├── application/service/UserService.java
+│   │   ├── application/mapper/IUserMapper.java
+│   │   ├── application/dto/               ← CreateUserRequest, UpdateUserRequest, UserResponse
+│   │   └── infrastructure/adapter/in/UserController.java
+│   ├── role/                              ← identical structure
+│   ├── permission/                        ← identical structure
 │   └── shared/
-│       ├── exception/
-│       │   ├── ResourceNotFoundException.java
-│       │   ├── DuplicateResourceException.java
-│       │   ├── ErrorResponse.java
-│       │   └── GlobalExceptionHandler.java
-│       └── config/SecurityConfig.java
+│       ├── config/
+│       │   ├── SecurityConfig.java
+│       │   ├── DataInitializer.java       ← seeds roles, permissions, admin user
+│       │   ├── JpaAuditingConfig.java
+│       │   └── AuditorAwareImpl.java
+│       ├── security/
+│       │   ├── JwtService.java
+│       │   ├── JwtAuthFilter.java
+│       │   ├── RateLimitFilter.java
+│       │   ├── UserDetailsServiceImpl.java
+│       │   ├── UserPrincipal.java
+│       │   ├── UserSecurityService.java
+│       │   ├── JwtAuthEntryPoint.java
+│       │   └── JwtAccessDeniedHandler.java
+│       └── exception/
+│           ├── GlobalExceptionHandler.java
+│           ├── ResourceNotFoundException.java
+│           ├── DuplicateResourceException.java
+│           ├── ResourceInUseException.java
+│           └── ErrorResponse.java
 ├── src/main/resources/
 │   ├── application.yaml
 │   └── application-test.yaml
 └── src/test/java/com/nsalazar/roleguard/
+    ├── auth/application/service/AuthServiceTest.java
+    ├── auth/infrastructure/adapter/in/AuthControllerTest.java
+    ├── auth/AuthIntegrationTest.java
     ├── user/application/service/UserServiceTest.java
     ├── user/infrastructure/adapter/in/UserControllerTest.java
     ├── role/application/service/RoleServiceTest.java
     ├── role/infrastructure/adapter/in/RoleControllerTest.java
+    ├── permission/infrastructure/adapter/in/PermissionControllerTest.java
     └── RoleguardApplicationTests.java
 ```
 
@@ -119,31 +143,45 @@ roleguard/roleguard/
 ### Hexagonal Architecture (Ports & Adapters)
 Domain logic lives in `application/service` and is completely decoupled from HTTP, JPA, or any framework. Controllers and repositories are interchangeable adapters — swapping MySQL for PostgreSQL or REST for gRPC requires zero changes to the domain.
 
-### Role-Based Access Control (RBAC) Foundation
-Users are assigned a single `Role` (e.g., `ADMIN`, `USER`). The schema and service layer are designed to support Spring Security authority resolution once JWT is added.
+### JWT Authentication (Stateless)
+Every request is authenticated via a signed JWT (`Authorization: Bearer <token>`). The `JwtAuthFilter` validates the token and populates the `SecurityContext` before the request reaches any controller. Sessions are `STATELESS` — no `HttpSession` is ever created.
 
-### Optimistic Locking
-Both `User` and `Role` entities carry a `@Version Long version` field. If two concurrent requests try to update the same record simultaneously, Hibernate throws `ObjectOptimisticLockingFailureException`, which the global handler converts to **HTTP 409 Conflict** — preventing silent data overwrites.
+### Refresh Token Rotation
+On login or register, both an **access token** (24h) and a **refresh token** (7d) are issued. `POST /auth/refresh` validates the refresh token, deletes it, and issues a new pair — preventing replay attacks. One refresh token per user is enforced.
+
+### Permission-Based RBAC
+Authorization is enforced at the method level using `@PreAuthorize` with granular permissions (e.g., `USER_READ`, `ROLE_ASSIGN`, `PERMISSION_CREATE`). Permissions are stored in the database and assigned to roles. The default seed on startup creates four roles:
+
+| Role | Permissions |
+|------|-------------|
+| `ADMIN` | All permissions |
+| `MODERATOR` | User/role management, read permissions |
+| `SUPPORT` | `USER_READ`, `ROLE_READ` |
+| `USER` | `USER_READ` |
+
+### Self-Update Authorization
+`PUT /users/{id}` allows the resource owner to update their own account (via `@userSecurity.isSelf`) **or** any caller with `USER_UPDATE` authority. The `enabled` field is restricted to `USER_UPDATE` holders only — a regular user cannot disable their own account.
+
+### Rate Limiting
+`POST /auth/login` is rate-limited to **10 requests per minute per IP** using Bucket4j token buckets. Excess requests receive `429 Too Many Requests`.
 
 ### BCrypt Password Hashing
-Passwords are hashed with `BCryptPasswordEncoder` before persistence. The raw password never touches the database, is never logged (excluded from `toString()`), and is never returned in responses.
+Passwords are hashed with `BCryptPasswordEncoder` before persistence. The raw password never touches the database, is never logged, and is never returned in responses.
 
-### JPA Lifecycle Callbacks (`@PreUpdate`)
-`createdAt` is set once on INSERT using `@CreationTimestamp`. `updatedAt` uses a `@PreUpdate` callback so it stays `null` on creation and is only populated when the record is actually modified — a semantic distinction lost when using `@UpdateTimestamp` alone.
+### Optimistic Locking
+`User` and `Role` entities carry a `@Version Long version` field. Concurrent updates on the same row throw `ObjectOptimisticLockingFailureException`, which the global handler converts to **HTTP 409 Conflict**.
+
+### JPA Auditing
+`createdBy` / `updatedBy` are populated automatically by Spring Data JPA Auditing via `AuditorAwareImpl`, which reads the current principal's username from the `SecurityContext`.
 
 ### MapStruct DTO Mapping
-Entity-to-DTO and DTO-to-entity conversions are handled by generated code (MapStruct), keeping service methods free of manual field assignments and ensuring compile-time safety.
+Entity-to-DTO and DTO-to-entity conversions are handled by generated MapStruct code, keeping service methods free of manual field assignments.
 
 ### Bean Validation + Global Exception Handler
-All request bodies are validated with Jakarta annotations (`@NotBlank`, `@Email`, `@Size`, `@Pattern`). A single `@RestControllerAdvice` translates every exception — validation, business, concurrency, FK violations — into a consistent JSON error envelope.
+All request bodies are validated with Jakarta annotations (`@NotBlank`, `@Email`, `@Size`, `@Pattern`). A single `@RestControllerAdvice` translates every exception — validation, business, security, concurrency, FK violations — into a consistent JSON error envelope.
 
 ### Paginated Endpoints
-All list endpoints accept `page`, `size`, and `sort` query parameters and return Spring's `Page<T>` structure, enabling cursor-free pagination from day one.
-
-### Test Strategy
-- **Unit tests** (Mockito): service methods are tested in isolation with mocked repository ports.
-- **Integration tests** (MockMvc + `@WebMvcTest`): controllers are tested end-to-end through the HTTP layer with a mocked service, covering happy paths, validation failures, and business error responses.
-- **In-memory DB**: the `test` Spring profile swaps MySQL for H2 with `create-drop`, so tests never require an external database.
+All list endpoints accept `page`, `size`, and `sort` query parameters and return Spring's `Page<T>` structure.
 
 ---
 
@@ -151,24 +189,80 @@ All list endpoints accept `page`, `size`, and `sort` query parameters and return
 
 Base URL: `http://localhost:8080/api/v1`
 
+### Authentication
+
+| Method | Endpoint | Auth required | Description | Success |
+|--------|----------|:---:|-------------|---------:|
+| `POST` | `/auth/register` | — | Register a new user | 201 |
+| `POST` | `/auth/login` | — | Login and get tokens | 200 |
+| `POST` | `/auth/refresh` | — | Rotate refresh token | 200 |
+| `POST` | `/auth/logout` | — | Revoke refresh token | 204 |
+| `GET`  | `/auth/me` | JWT | Get own profile | 200 |
+| `PUT`  | `/auth/me/password` | JWT | Change own password | 204 |
+
+#### `POST /auth/register` — Request Body
+
+```json
+{
+  "username": "johndoe",
+  "email": "john@example.com",
+  "password": "secret123"
+}
+```
+
+#### `POST /auth/login` — Request Body
+
+```json
+{
+  "username": "johndoe",
+  "password": "secret123"
+}
+```
+
+#### `POST /auth/login` and `/auth/register` — Response
+
+```json
+{
+  "token": "<access-jwt>",
+  "type": "Bearer",
+  "username": "johndoe",
+  "role": "USER",
+  "refreshToken": "<refresh-token-uuid>"
+}
+```
+
+#### `POST /auth/refresh` — Request Body
+
+```json
+{ "refreshToken": "<refresh-token-uuid>" }
+```
+
+#### `PUT /auth/me/password` — Request Body
+
+```json
+{
+  "currentPassword": "secret123",
+  "newPassword": "newSecret456"
+}
+```
+
+---
+
 ### Users
 
-| Method | Endpoint | Description | Success |
-|--------|----------|-------------|---------|
-| `GET` | `/users` | List all users (paginated) | 200 |
-| `GET` | `/users/{id}` | Get user by ID | 200 |
-| `GET` | `/users/email/{email}` | Get user by email | 200 |
-| `POST` | `/users` | Create a new user | 201 |
-| `PUT` | `/users/{id}` | Partially update a user | 200 |
-| `DELETE` | `/users/{id}` | Delete a user | 204 |
+> All endpoints require a valid JWT. Fine-grained access is controlled by `@PreAuthorize`.
 
-#### Query Parameters (list endpoints)
+| Method | Endpoint | Required authority | Description | Success |
+|--------|----------|--------------------|-------------|---------:|
+| `GET` | `/users` | `USER_READ` | List all users (paginated) | 200 |
+| `GET` | `/users/{id}` | `USER_READ` | Get user by ID | 200 |
+| `GET` | `/users/email/{email}` | `USER_READ` | Get user by email | 200 |
+| `POST` | `/users` | `USER_CREATE` | Create a user (admin) | 201 |
+| `PUT` | `/users/{id}` | `USER_UPDATE` or self | Partially update a user | 200 |
+| `PUT` | `/users/{id}/roles/{roleId}` | `ROLE_ASSIGN` | Assign a role to a user | 200 |
+| `DELETE` | `/users/{id}` | `USER_DELETE` | Delete a user | 204 |
 
-| Param | Default | Constraints |
-|-------|---------|-------------|
-| `page` | `0` | `>= 0` |
-| `size` | `20` | `1 – 100` |
-| `sort` | — | e.g. `username,asc` |
+> **Self-update rule:** a user can call `PUT /users/{id}` on their own account without `USER_UPDATE`. The `enabled` field can only be modified by a caller with `USER_UPDATE`.
 
 #### `POST /users` — Request Body
 
@@ -178,17 +272,17 @@ Base URL: `http://localhost:8080/api/v1`
   "email": "john@example.com",
   "password": "secret123",
   "enabled": true,
-  "roleId": 1
+  "roleId": "<uuid>"
 }
 ```
 
 | Field | Required | Rules |
-|-------|----------|-------|
+|-------|:--------:|-------|
 | `username` | Yes | 3–50 characters |
 | `email` | Yes | Valid email format |
 | `password` | Yes | Minimum 8 characters |
 | `enabled` | No | Defaults to `true` |
-| `roleId` | No | Must reference an existing role |
+| `roleId` | No | UUID of an existing role |
 
 #### `PUT /users/{id}` — Request Body (all fields optional)
 
@@ -201,11 +295,11 @@ Base URL: `http://localhost:8080/api/v1`
 }
 ```
 
-#### `GET /users/{id}` — Response
+#### User Response
 
 ```json
 {
-  "id": 1,
+  "id": "11111111-1111-1111-1111-111111111111",
   "username": "johndoe",
   "email": "john@example.com",
   "roleName": "USER",
@@ -216,32 +310,45 @@ Base URL: `http://localhost:8080/api/v1`
 }
 ```
 
+#### Query Parameters (list endpoints)
+
+| Param | Default | Constraints |
+|-------|---------|-------------|
+| `page` | `0` | `>= 0` |
+| `size` | `20` | `1 – 100` |
+| `sort` | `id` | field name |
+
 ---
 
 ### Roles
 
-| Method | Endpoint | Description | Success |
-|--------|----------|-------------|---------|
-| `GET` | `/roles` | List all roles (paginated) | 200 |
-| `GET` | `/roles/{id}` | Get role by ID | 200 |
-| `GET` | `/roles/name/{name}` | Get role by name | 200 |
-| `POST` | `/roles` | Create a new role | 201 |
-| `PUT` | `/roles/{id}` | Partially update a role | 200 |
-| `DELETE` | `/roles/{id}` | Delete a role | 204 |
+| Method | Endpoint | Required authority | Description | Success |
+|--------|----------|--------------------|-------------|---------:|
+| `GET` | `/roles` | `ROLE_READ` | List all roles (paginated) | 200 |
+| `GET` | `/roles/{id}` | `ROLE_READ` | Get role by ID | 200 |
+| `GET` | `/roles/name/{name}` | `ROLE_READ` | Get role by name | 200 |
+| `POST` | `/roles` | `ROLE_CREATE` | Create a role | 201 |
+| `PUT` | `/roles/{id}` | `ROLE_UPDATE` | Partially update a role | 200 |
+| `DELETE` | `/roles/{id}` | `ROLE_DELETE` | Delete a role | 204 |
+| `PUT` | `/roles/{id}/permissions/{permissionId}` | `PERMISSION_ASSIGN` | Assign permission to role | 200 |
+| `DELETE` | `/roles/{id}/permissions/{permissionId}` | `PERMISSION_ASSIGN` | Remove permission from role | 200 |
 
-#### `POST /roles` — Request Body
+> Deleting a role that has users assigned returns **409 Conflict**.
 
-```json
-{
-  "name": "ADMIN"
-}
-```
+---
 
-| Field | Required | Rules |
-|-------|----------|-------|
-| `name` | Yes | 2–50 chars, uppercase, pattern `^[A-Z][A-Z0-9_]*$` |
+### Permissions
 
-> **Note:** Deleting a role that has users assigned returns **409 Conflict**.
+| Method | Endpoint | Required authority | Description | Success |
+|--------|----------|--------------------|-------------|---------:|
+| `GET` | `/permissions` | `PERMISSION_READ` | List all permissions (paginated) | 200 |
+| `GET` | `/permissions/{id}` | `PERMISSION_READ` | Get permission by ID | 200 |
+| `GET` | `/permissions/name/{name}` | `PERMISSION_READ` | Get permission by name | 200 |
+| `POST` | `/permissions` | `PERMISSION_CREATE` | Create a permission | 201 |
+| `PUT` | `/permissions/{id}` | `PERMISSION_UPDATE` | Partially update a permission | 200 |
+| `DELETE` | `/permissions/{id}` | `PERMISSION_DELETE` | Delete a permission | 204 |
+
+> Deleting a permission assigned to a role returns **409 Conflict**.
 
 ---
 
@@ -253,16 +360,19 @@ All errors follow a consistent envelope:
 {
   "status": 404,
   "error": "Not Found",
-  "message": "User not found with id: '99'",
+  "message": "User not found with id: '99999999-9999-9999-9999-999999999999'",
   "timestamp": "2025-01-15T10:30:00"
 }
 ```
 
 | HTTP Status | Cause |
-|-------------|-------|
+|:-----------:|-------|
 | 400 | Validation failure (field errors concatenated in `message`) |
+| 401 | Missing or invalid JWT / wrong credentials |
+| 403 | Valid JWT but insufficient authority |
 | 404 | Resource not found |
 | 409 | Duplicate resource, FK constraint violation, or optimistic lock conflict |
+| 429 | Rate limit exceeded (login endpoint) |
 | 500 | Unexpected server error |
 
 ---
@@ -282,26 +392,19 @@ git clone <repo-url>
 cd Spring_Boot_RoleGuard_API
 ```
 
-### 2. Create the database
-
-```sql
-CREATE DATABASE roleguard_db;
-```
-
-> The datasource URL includes `createDatabaseIfNotExist=true`, so this step is optional if your MySQL user has `CREATE` privileges.
-
-### 3. Configure credentials
-
-The application reads credentials from environment variables with sensible defaults:
+### 2. Configure environment variables
 
 ```bash
 export DB_USERNAME=your_mysql_user
 export DB_PASSWORD=your_mysql_password
+
+# Optional — defaults are provided for development only
+export JWT_SECRET=<base64-encoded-secret-min-32-bytes>
 ```
 
-Or edit `roleguard/roleguard/src/main/resources/application.yaml` directly.
+> **Important:** the default `JWT_SECRET` is a dev-only placeholder. Always override it in production with a strong, randomly generated Base64-encoded key.
 
-### 4. Run the application
+### 3. Run the application
 
 ```bash
 cd roleguard/roleguard
@@ -310,21 +413,32 @@ cd roleguard/roleguard
 
 The API will be available at `http://localhost:8080`.
 
-### 5. Quick smoke test
+On first startup, `DataInitializer` automatically seeds:
+- Default permissions (`USER_READ`, `USER_CREATE`, … `PERMISSION_DELETE`)
+- Default roles (`ADMIN`, `MODERATOR`, `SUPPORT`, `USER`) with their permission sets
+- A built-in `ADMIN` user (username: `ADMIN`, password: `ADMIN`) — **change this immediately in production**
+
+### 4. Quick smoke test
 
 ```bash
-# Create a role
-curl -s -X POST http://localhost:8080/api/v1/roles \
+# Login as the default admin
+TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"name":"USER"}' | jq .
+  -d '{"username":"ADMIN","password":"ADMIN"}' | jq -r '.token')
 
-# Create a user
-curl -s -X POST http://localhost:8080/api/v1/users \
-  -H "Content-Type: application/json" \
-  -d '{"username":"johndoe","email":"john@example.com","password":"secret123","roleId":1}' | jq .
+# Get own profile
+curl -s http://localhost:8080/api/v1/auth/me \
+  -H "Authorization: Bearer $TOKEN" | jq .
 
 # List users
-curl -s "http://localhost:8080/api/v1/users?page=0&size=10" | jq .
+curl -s "http://localhost:8080/api/v1/users?page=0&size=10" \
+  -H "Authorization: Bearer $TOKEN" | jq .
+
+# Create a new user
+curl -s -X POST http://localhost:8080/api/v1/users \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"johndoe","email":"john@example.com","password":"secret123"}' | jq .
 ```
 
 ---
@@ -337,19 +451,19 @@ Tests use an H2 in-memory database — no MySQL required.
 cd roleguard/roleguard
 
 # Run all tests
-./mvnw test -Dspring.profiles.active=test
+./mvnw test
 
 # Run a specific test class
-./mvnw test -Dtest=UserServiceTest -Dspring.profiles.active=test
+./mvnw test -Dtest=UserServiceTest
 
 # Run a specific test method
-./mvnw test -Dtest=UserServiceTest#createUser -Dspring.profiles.active=test
+./mvnw test -Dtest=UserServiceTest#createUser
 
 # Build without tests
 ./mvnw clean package -DskipTests
 ```
 
-Current test count: **63 tests, 0 failures**.
+Current test count: **145 tests, 0 failures**.
 
 ---
 
@@ -359,14 +473,20 @@ Current test count: **63 tests, 0 failures**.
 |----------|---------|-------------|
 | `DB_USERNAME` | `root` | MySQL username |
 | `DB_PASSWORD` | `root` | MySQL password |
+| `JWT_SECRET` | *(dev placeholder)* | Base64-encoded HMAC-SHA256 signing key |
+| `JWT_EXPIRATION_MS` | `86400000` (24h) | Access token lifetime in milliseconds |
+| `JWT_REFRESH_EXPIRATION_MS` | `604800000` (7d) | Refresh token lifetime in milliseconds |
 
 ---
 
 ## Roadmap
 
-- [ ] JWT authentication (access + refresh tokens)
-- [ ] Role-based endpoint authorization (`@PreAuthorize`)
-- [ ] Token blacklist / logout support
-- [ ] Refresh token rotation
+- [x] JWT authentication (access + refresh tokens)
+- [x] Refresh token rotation
+- [x] Role-based endpoint authorization (`@PreAuthorize` with granular permissions)
+- [x] Self-update rule (resource owner or privileged authority)
+- [x] Rate limiting on login endpoint (Bucket4j)
+- [x] JPA Auditing (`createdBy` / `updatedBy`)
+- [ ] Access token revocation on logout (blacklist / JTI)
 - [ ] Swagger / OpenAPI documentation
 - [ ] Docker Compose setup
