@@ -10,6 +10,7 @@ import com.nsalazar.roleguard.user.application.dto.UserResponse;
 import com.nsalazar.roleguard.user.application.mapper.IUserMapper;
 import com.nsalazar.roleguard.user.domain.model.User;
 import com.nsalazar.roleguard.user.domain.port.out.IUserRepositoryPort;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -22,6 +23,10 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDateTime;
@@ -409,22 +414,151 @@ class UserServiceTest {
     @DisplayName("assignRole()")
     class AssignRole {
 
+        private static final UUID ADMIN_ROLE_ID     = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        private static final UUID MODERATOR_ROLE_ID = UUID.fromString("44444444-4444-4444-4444-444444444444");
+        private static final UUID SUPPORT_ROLE_ID   = UUID.fromString("55555555-5555-5555-5555-555555555555");
+
+        private final Role userRole      = Role.builder().id(ROLE_ID).name("USER").build();
+        private final Role adminRole     = Role.builder().id(ADMIN_ROLE_ID).name("ADMIN").build();
+        private final Role moderatorRole = Role.builder().id(MODERATOR_ROLE_ID).name("MODERATOR").build();
+        private final Role supportRole   = Role.builder().id(SUPPORT_ROLE_ID).name("SUPPORT").build();
+
+        @AfterEach
+        void clearSecurityContext() {
+            SecurityContextHolder.clearContext();
+        }
+
+        private void loginAs(String username, String roleName) {
+            SecurityContextHolder.getContext().setAuthentication(
+                    new UsernamePasswordAuthenticationToken(
+                            username, null, List.of(new SimpleGrantedAuthority(roleName))));
+        }
+
         @Test
-        @DisplayName("should assign role to user and return updated response")
-        void shouldAssignRole_whenBothExist() {
-            Role role = Role.builder().id(ROLE_ID).name("ADMIN").build();
-            UserResponse updatedResponse = new UserResponse(USER_ID, "john", "john@example.com", "ADMIN",
+        @DisplayName("ADMIN should assign any role to another user")
+        void adminShouldAssignRole_whenTargetIsNotSelf() {
+            loginAs("admin", "ADMIN");
+            UserResponse updatedResponse = new UserResponse(USER_ID, "john", "john@example.com", "MODERATOR",
                     true, 1L, user.getCreatedAt(), null);
 
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
-            when(roleRepository.findById(ROLE_ID)).thenReturn(Optional.of(role));
+            when(roleRepository.findById(MODERATOR_ROLE_ID)).thenReturn(Optional.of(moderatorRole));
+            when(userRepository.save(user)).thenReturn(user);
+            when(userMapper.toResponse(user)).thenReturn(updatedResponse);
+
+            UserResponse result = userService.assignRole(USER_ID, MODERATOR_ROLE_ID);
+
+            assertThat(result.roleName()).isEqualTo("MODERATOR");
+            assertThat(user.getRole()).isEqualTo(moderatorRole);
+        }
+
+        @Test
+        @DisplayName("ADMIN should not change own role")
+        void adminShouldThrow_whenChangingOwnRole() {
+            loginAs("john", "ADMIN");
+
+            when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+            when(roleRepository.findById(MODERATOR_ROLE_ID)).thenReturn(Optional.of(moderatorRole));
+
+            assertThatThrownBy(() -> userService.assignRole(USER_ID, MODERATOR_ROLE_ID))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("own role");
+        }
+
+        @Test
+        @DisplayName("MODERATOR should promote USER to MODERATOR")
+        void moderatorShouldAssignRole_userToModerator() {
+            loginAs("mod1", "MODERATOR");
+            user.setRole(userRole);
+            UserResponse updatedResponse = new UserResponse(USER_ID, "john", "john@example.com", "MODERATOR",
+                    true, 1L, user.getCreatedAt(), null);
+
+            when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+            when(roleRepository.findById(MODERATOR_ROLE_ID)).thenReturn(Optional.of(moderatorRole));
+            when(userRepository.save(user)).thenReturn(user);
+            when(userMapper.toResponse(user)).thenReturn(updatedResponse);
+
+            UserResponse result = userService.assignRole(USER_ID, MODERATOR_ROLE_ID);
+
+            assertThat(result.roleName()).isEqualTo("MODERATOR");
+        }
+
+        @Test
+        @DisplayName("MODERATOR should promote USER to SUPPORT")
+        void moderatorShouldAssignRole_userToSupport() {
+            loginAs("mod1", "MODERATOR");
+            user.setRole(userRole);
+            UserResponse updatedResponse = new UserResponse(USER_ID, "john", "john@example.com", "SUPPORT",
+                    true, 1L, user.getCreatedAt(), null);
+
+            when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+            when(roleRepository.findById(SUPPORT_ROLE_ID)).thenReturn(Optional.of(supportRole));
+            when(userRepository.save(user)).thenReturn(user);
+            when(userMapper.toResponse(user)).thenReturn(updatedResponse);
+
+            UserResponse result = userService.assignRole(USER_ID, SUPPORT_ROLE_ID);
+
+            assertThat(result.roleName()).isEqualTo("SUPPORT");
+        }
+
+        @Test
+        @DisplayName("MODERATOR should demote SUPPORT to USER")
+        void moderatorShouldAssignRole_supportToUser() {
+            loginAs("mod1", "MODERATOR");
+            user.setRole(supportRole);
+            UserResponse updatedResponse = new UserResponse(USER_ID, "john", "john@example.com", "USER",
+                    true, 1L, user.getCreatedAt(), null);
+
+            when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+            when(roleRepository.findById(ROLE_ID)).thenReturn(Optional.of(userRole));
             when(userRepository.save(user)).thenReturn(user);
             when(userMapper.toResponse(user)).thenReturn(updatedResponse);
 
             UserResponse result = userService.assignRole(USER_ID, ROLE_ID);
 
-            assertThat(result.roleName()).isEqualTo("ADMIN");
-            assertThat(user.getRole()).isEqualTo(role);
+            assertThat(result.roleName()).isEqualTo("USER");
+        }
+
+        @Test
+        @DisplayName("MODERATOR should not assign ADMIN role to a USER")
+        void moderatorShouldThrow_whenAssigningAdminToUser() {
+            loginAs("mod1", "MODERATOR");
+            user.setRole(userRole);
+
+            when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+            when(roleRepository.findById(ADMIN_ROLE_ID)).thenReturn(Optional.of(adminRole));
+
+            assertThatThrownBy(() -> userService.assignRole(USER_ID, ADMIN_ROLE_ID))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("MODERATOR cannot assign");
+        }
+
+        @Test
+        @DisplayName("MODERATOR should not change role of another MODERATOR")
+        void moderatorShouldThrow_whenTargetIsAlsoModerator() {
+            loginAs("mod1", "MODERATOR");
+            user.setRole(moderatorRole);
+
+            when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+            when(roleRepository.findById(ROLE_ID)).thenReturn(Optional.of(userRole));
+
+            assertThatThrownBy(() -> userService.assignRole(USER_ID, ROLE_ID))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("MODERATOR cannot assign");
+        }
+
+        @Test
+        @DisplayName("MODERATOR should not change own role")
+        void moderatorShouldThrow_whenChangingOwnRole() {
+            loginAs("john", "MODERATOR");
+            user.setRole(moderatorRole);
+
+            when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+            when(roleRepository.findById(ROLE_ID)).thenReturn(Optional.of(userRole));
+
+            assertThatThrownBy(() -> userService.assignRole(USER_ID, ROLE_ID))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("own role");
         }
 
         @Test

@@ -15,10 +15,15 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -30,6 +35,8 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class UserService implements IUserUseCase {
+
+    private static final Set<String> ROLE_NAMES = Set.of("ADMIN", "MODERATOR", "USER", "SUPPORT");
 
     private final IUserRepositoryPort userRepository;
     private final IRoleRepositoryPort roleRepository;
@@ -128,13 +135,45 @@ public class UserService implements IUserUseCase {
     @Transactional
     public UserResponse assignRole(UUID userId, UUID roleId) {
         log.debug("Assigning role id={} to user id={}", roleId, userId);
-        User user = findUserOrThrow(userId);
-        Role role = roleRepository.findById(roleId)
+        User targetUser = findUserOrThrow(userId);
+        Role newRole = roleRepository.findById(roleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role", "id", roleId));
-        user.setRole(role);
-        User updated = userRepository.save(user);
-        log.info("Role '{}' assigned to user id={}", role.getName(), userId);
+
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String callerUsername = auth.getName();
+        String callerRole = auth.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .filter(ROLE_NAMES::contains)
+                .findFirst()
+                .orElse(null);
+
+        if (targetUser.getUsername().equals(callerUsername)) {
+            throw new AccessDeniedException("Cannot change your own role");
+        }
+
+        if ("MODERATOR".equals(callerRole)) {
+            validateModeratorRoleAssignment(targetUser, newRole);
+        }
+
+        targetUser.setRole(newRole);
+        User updated = userRepository.save(targetUser);
+        log.info("Role '{}' assigned to user id={} by '{}'", newRole.getName(), userId, callerUsername);
         return userMapper.toResponse(updated);
+    }
+
+    private void validateModeratorRoleAssignment(User targetUser, Role newRole) {
+        String currentRoleName = targetUser.getRole() != null ? targetUser.getRole().getName() : null;
+        String newRoleName = newRole.getName();
+
+        boolean allowed =
+                ("USER".equals(currentRoleName) && ("MODERATOR".equals(newRoleName) || "SUPPORT".equals(newRoleName)))
+                || ("SUPPORT".equals(currentRoleName) && "USER".equals(newRoleName));
+
+        if (!allowed) {
+            throw new AccessDeniedException(
+                    "MODERATOR cannot assign role '" + newRoleName
+                    + "' to user with role '" + currentRoleName + "'");
+        }
     }
 
     @Override

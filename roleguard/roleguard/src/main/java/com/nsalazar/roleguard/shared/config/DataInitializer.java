@@ -40,8 +40,8 @@ public class DataInitializer implements ApplicationRunner {
             "MODERATOR", Set.of("USER_READ", "USER_CREATE", "USER_UPDATE", "USER_DELETE", "USER_ASSIGN",
                                 "ROLE_READ", "ROLE_ASSIGN",
                                 "PERMISSION_READ"),
-            "SUPPORT",   Set.of("USER_READ", "ROLE_READ"),
-            "USER",      Set.of("USER_READ")
+            "SUPPORT",   Set.of("USER_READ", "ROLE_READ", "PERMISSION_READ"),
+            "USER",      Set.of("USER_READ", "ROLE_READ", "PERMISSION_READ")
     );
     private static final String ADMIN_USERNAME = "ADMIN";
     private static final String ADMIN_PASSWORD = "ADMIN";
