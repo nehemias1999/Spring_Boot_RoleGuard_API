@@ -156,8 +156,22 @@ Authorization is enforced at the method level using `@PreAuthorize` with granula
 |------|-------------|
 | `ADMIN` | All permissions |
 | `MODERATOR` | User/role management, read permissions |
-| `SUPPORT` | `USER_READ`, `ROLE_READ` |
-| `USER` | `USER_READ` |
+| `SUPPORT` | `USER_READ`, `ROLE_READ`, `PERMISSION_READ` |
+| `USER` | `USER_READ`, `ROLE_READ`, `PERMISSION_READ` |
+
+### Role Assignment Hierarchy
+
+`PUT /users/{id}/roles/{roleId}` enforces a caller-based hierarchy on top of the `ROLE_ASSIGN` permission check:
+
+| Caller | Target's current role | Allowed new roles |
+|--------|-----------------------|-------------------|
+| `ADMIN` | any | any (except own account) |
+| `MODERATOR` | `USER` | `MODERATOR`, `SUPPORT` |
+| `MODERATOR` | `SUPPORT` | `USER` |
+| `MODERATOR` | `MODERATOR` | ❌ forbidden |
+| `MODERATOR` | `ADMIN` | ❌ forbidden |
+
+Self-assignment is blocked for **all** callers — no one can change their own role. `USER` and `SUPPORT` are already blocked upstream by `@PreAuthorize("hasAuthority('ROLE_ASSIGN')")`.
 
 ### Self-Update Authorization
 `PUT /users/{id}` allows the resource owner to update their own account (via `@userSecurity.isSelf`) **or** any caller with `USER_UPDATE` authority. The `enabled` field is restricted to `USER_UPDATE` holders only — a regular user cannot disable their own account.
@@ -463,7 +477,7 @@ cd roleguard/roleguard
 ./mvnw clean package -DskipTests
 ```
 
-Current test count: **145 tests, 0 failures**.
+Current test count: **152 tests, 0 failures**.
 
 ---
 
@@ -485,6 +499,7 @@ Current test count: **145 tests, 0 failures**.
 - [x] Refresh token rotation
 - [x] Role-based endpoint authorization (`@PreAuthorize` with granular permissions)
 - [x] Self-update rule (resource owner or privileged authority)
+- [x] Role assignment hierarchy (MODERATOR caller restrictions, self-assignment block)
 - [x] Rate limiting on login endpoint (Bucket4j)
 - [x] JPA Auditing (`createdBy` / `updatedBy`)
 - [ ] Access token revocation on logout (blacklist / JTI)
